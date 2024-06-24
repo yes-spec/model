@@ -1,0 +1,91 @@
+# This Python 3 environment comes with many helpful analytics libraries installed
+# It is defined by the kaggle/python Docker image: https://github.com/kaggle/docker-python
+# For example, here's several helpful packages to load
+
+import numpy as np # linear algebra
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+
+# Input data files are available in the read-only "../input/" directory
+# For example, running this (by clicking run or pressing Shift+Enter) will list all files under the input directory
+
+import os
+for dirname, _, filenames in os.walk('/kaggle/input'):
+    for filename in filenames:
+        print(os.path.join(dirname, filename))
+
+# You can write up to 20GB to the current directory (/kaggle/working/) that gets preserved as output when you create a version using "Save & Run All" 
+# You can also write temporary files to /kaggle/temp/, but they won't be saved outside of the current session
+/kaggle/input/alx-movie-recommendation-project-2024/sample_submission.csv
+/kaggle/input/alx-movie-recommendation-project-2024/movies.csv
+/kaggle/input/alx-movie-recommendation-project-2024/imdb_data.csv
+/kaggle/input/alx-movie-recommendation-project-2024/genome_tags.csv
+/kaggle/input/alx-movie-recommendation-project-2024/genome_scores.csv
+/kaggle/input/alx-movie-recommendation-project-2024/train.csv
+/kaggle/input/alx-movie-recommendation-project-2024/test.csv
+/kaggle/input/alx-movie-recommendation-project-2024/tags.csv
+/kaggle/input/alx-movie-recommendation-project-2024/links.csv
+import numpy as np
+import pandas as pd
+from surprise import Reader, Dataset, SVD
+from surprise.model_selection import RandomizedSearchCV
+
+# Load data
+train = pd.read_csv('/kaggle/input/alx-movie-recommendation-project-2024/train.csv')
+test = pd.read_csv('/kaggle/input/alx-movie-recommendation-project-2024/test.csv')
+movies = pd.read_csv('/kaggle/input/alx-movie-recommendation-project-2024/movies.csv')
+
+# Basic information
+print("Train shape:", train.shape)
+print("Test shape:", test.shape)
+print("Movies shape:", movies.shape)
+
+# Use a smaller subset of data for initial hyperparameter tuning
+train_subset = train.sample(frac=0.1, random_state=1)
+
+# Load data into Surprise format
+reader = Reader(rating_scale=(0.5, 5))
+data = Dataset.load_from_df(train_subset[['userId', 'movieId', 'rating']], reader)
+
+# Define the parameter distribution
+param_dist = {
+    'n_factors': [50, 100, 150],
+    'n_epochs': [20, 30],
+    'lr_all': [0.002, 0.005],
+    'reg_all': [0.02, 0.1]
+}
+
+# Perform randomized search
+rs = RandomizedSearchCV(SVD, param_dist, measures=['rmse'], cv=5, n_iter=10, random_state=1, n_jobs=-1)
+rs.fit(data)
+
+# Best parameters
+print("Best RMSE score:", rs.best_score['rmse'])
+print("Best parameters:", rs.best_params['rmse'])
+
+# Use the full training data
+full_data = Dataset.load_from_df(train[['userId', 'movieId', 'rating']], reader)
+
+# Train the best SVD model with the entire dataset
+best_svd = rs.best_estimator['rmse']
+trainset = full_data.build_full_trainset()
+best_svd.fit(trainset)
+
+# Function to predict rating for each user-movie pair in the test set
+def predict_rating(user_id, movie_id):
+    prediction = best_svd.predict(user_id, movie_id)
+    return prediction.est
+
+# Apply prediction function to each row in the test dataframe
+test['rating'] = test.apply(lambda row: predict_rating(row['userId'], row['movieId']), axis=1)
+
+# Prepare submission format
+test['Id'] = test['userId'].astype(str) + '_' + test['movieId'].astype(str)
+submission = test[['Id', 'rating']]
+
+# Save submission file
+submission.to_csv('/kaggle/working/submission.csv', index=False)
+Train shape: (10000038, 4)
+Test shape: (5000019, 2)
+Movies shape: (62423, 3)
+Best RMSE score: 0.9027198350892268
+Best parameters: {'n_factors': 100, 'n_epochs': 30, 'lr_all': 0.005, 'reg_all': 0.1}
